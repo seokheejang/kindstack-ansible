@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app_name }}-deployment
+  namespace: {{ target_namespace }}
+  labels:
+    app: {{ app_name }}
+spec:
+  replicas: {{ app_replicas | int }}
+  selector:
+    matchLabels:
+      app: {{ app_name }}
+  template:
+    metadata:
+      labels:
+        app: {{ app_name }}
+    spec:
+      containers:
+      - name: {{ app_name }}
+        image: {{ app_image }}
+        ports:
+        - containerPort: {{ app_port | int }}
+        envFrom:
+        - configMapRef:
+            name: {{ app_name }}-config
+        resources:
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+        livenessProbe:
+          httpGet:
+            path: /
+            port: {{ app_port | int }}
+          initialDelaySeconds: 30
+          periodSeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /
+            port: {{ app_port | int }}
+          initialDelaySeconds: 5
+          periodSeconds: 5

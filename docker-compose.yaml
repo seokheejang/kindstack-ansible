@@ -1,0 +1,21 @@
+version: "3.8"
+services:
+  localstack:
+    image: localstack/localstack:latest
+    ports:
+      - "4566:4566"
+    environment:
+      - SERVICES=s3,route53,iam,sts  # 기본 AWS 서비스들 추가
+      - AWS_DEFAULT_REGION=us-east-1
+      - AWS_ACCESS_KEY_ID=test
+      - AWS_SECRET_ACCESS_KEY=test
+      - DEBUG=1  # 디버그 로그 활성화
+      - PERSISTENCE=0  # 데이터 영속성 비활성화 (테스트용)
+    volumes:
+      - "/var/run/docker.sock:/var/run/docker.sock"  # Docker 소켓 마운트 (필요시)
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:4566/_localstack/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s

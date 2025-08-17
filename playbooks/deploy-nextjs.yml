@@ -1,0 +1,131 @@
+---
+# Next.js SSR 앱을 Kind 클러스터에 배포하는 플레이북
+
+- name: "Next.js SSR 앱을 Kind 클러스터에 배포"
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  
+  vars_prompt:
+    - name: app_name
+      prompt: "배포할 앱 이름을 입력하세요"
+      default: "nextjs-sample"
+      private: false
+    
+    - name: app_image
+      prompt: "사용할 이미지를 입력하세요"
+      default: "nginx:alpine"
+      private: false
+    
+    - name: app_replicas
+      prompt: "복제본 수를 입력하세요"
+      default: "1"
+      private: false
+
+  pre_tasks:
+    - name: 필수 조건 확인
+      block:
+        - name: kubectl 명령어 존재 확인
+          command: which kubectl
+          register: kubectl_check
+          failed_when: kubectl_check.rc != 0
+          changed_when: false
+        
+        - name: Kind 클러스터 상태 확인
+          command: kubectl cluster-info --context kind-kind
+          register: kind_check
+          failed_when: kind_check.rc != 0
+          changed_when: false
+        
+        - name: LocalStack 상태 확인
+          uri:
+            url: "{{ localstack_endpoint }}/_localstack/health"
+            method: GET
+            timeout: 10
+            status_code: [200, 404]  # 404도 허용 (서비스가 실행 중이면 응답함)
+          register: localstack_check
+          failed_when: localstack_check.status not in [200, 404]
+          ignore_errors: true
+        
+        - name: LocalStack 대체 상태 확인 (포트 체크)
+          wait_for:
+            host: localhost
+            port: 4566
+            timeout: 5
+          register: localstack_port_check
+          when: localstack_check is failed
+          failed_when: false
+      
+      rescue:
+        - name: 상세한 에러 메시지 출력
+          fail:
+            msg: |
+              🚨 필수 조건을 만족하지 않습니다:
+              
+              {% if kubectl_check is failed %}
+              ❌ kubectl: 설치되지 않음
+                 해결: brew install kubectl (macOS) 또는 ./scripts/setup.sh 실행
+              {% else %}
+              ✅ kubectl: 정상
+              {% endif %}
+              
+              {% if kind_check is failed %}
+              ❌ Kind 클러스터: 실행되지 않음
+                 해결: kind create cluster
+              {% else %}
+              ✅ Kind 클러스터: 정상
+              {% endif %}
+              
+              {% if localstack_check is failed and localstack_port_check is failed %}
+              ❌ LocalStack: 실행되지 않음
+                 해결: docker-compose up -d
+              {% elif localstack_check is failed %}
+              ⚠️  LocalStack: 실행 중이지만 health 체크 실패 (포트는 열림)
+                 배포는 계속 진행 가능합니다.
+              {% else %}
+              ✅ LocalStack: 정상
+              {% endif %}
+              
+              💡 빠른 해결: ./scripts/setup.sh 실행
+      tags:
+        - always
+
+  tasks:
+    - name: 변수 설정 확인
+      debug:
+        msg: |
+          배포 설정:
+          - 앱 이름: {{ app_name }}
+          - 이미지: {{ app_image }}
+          - 복제본: {{ app_replicas }}
+          - 네임스페이스: {{ target_namespace }}
+          - Kubernetes 컨텍스트: {{ kubernetes_context }}
+          - LocalStack 엔드포인트: {{ localstack_endpoint }}
+      tags:
+        - debug
+
+    - name: Next.js 앱 배포
+      include_role:
+        name: nextjs-deploy
+      tags:
+        - deploy
+
+  post_tasks:
+    - name: 배포 완료 메시지
+      debug:
+        msg: |
+          🎉 Next.js 앱 배포가 완료되었습니다!
+          
+          📋 확인 명령어:
+          kubectl get all -n {{ target_namespace }}
+          
+          🌐 접속 방법:
+          브라우저에서 http://localhost:30080 으로 접속하세요
+          
+          📊 로그 확인:
+          kubectl logs -f deployment/{{ app_name }}-deployment -n {{ target_namespace }}
+          
+          🧹 정리 명령어:
+          kubectl delete namespace {{ target_namespace }}
+      tags:
+        - always

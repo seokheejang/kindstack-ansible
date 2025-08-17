@@ -1,0 +1,28 @@
+---
+galaxy_info:
+  author: "{{ ansible_user | default('ansible') }}"
+  description: Next.js SSR 앱을 Kind 클러스터에 배포하는 역할
+  company: Local Development
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+    - name: Darwin
+      versions:
+        - all
+
+  galaxy_tags:
+    - kubernetes
+    - nextjs
+    - deployment
+    - kind
+    - localstack
+
+dependencies:
+  # 필요한 의존성이 있다면 여기에 추가
+  # - role: kubernetes-base

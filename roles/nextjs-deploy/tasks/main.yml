@@ -1,0 +1,107 @@
+---
+# Next.js SSR 앱을 Kind 클러스터에 배포하는 태스크
+
+- name: 임시 매니페스트 파일 생성
+  template:
+    src: "{{ item.src }}"
+    dest: "/tmp/{{ item.dest }}"
+  loop:
+    - { src: "deployment.yaml.j2", dest: "nextjs-deployment.yaml" }
+    - { src: "service.yaml.j2", dest: "nextjs-service.yaml" }
+  tags:
+    - always
+
+- name: 네임스페이스 생성
+  kubernetes.core.k8s:
+    name: "{{ target_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - namespace
+
+- name: ConfigMap 생성 (앱 설정용)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ app_name }}-config"
+        namespace: "{{ target_namespace }}"
+      data:
+        NODE_ENV: "production"
+        PORT: "{{ app_port | string }}"
+        # LocalStack 관련 환경변수
+        AWS_ENDPOINT_URL: "{{ localstack_endpoint | string }}"
+        AWS_ACCESS_KEY_ID: "{{ aws_access_key_id | string }}"
+        AWS_SECRET_ACCESS_KEY: "{{ aws_secret_access_key | string }}"
+        AWS_DEFAULT_REGION: "{{ aws_region | string }}"
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - configmap
+
+- name: Deployment 생성
+  kubernetes.core.k8s:
+    src: "/tmp/nextjs-deployment.yaml"
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - deployment
+
+- name: Service 생성
+  kubernetes.core.k8s:
+    src: "/tmp/nextjs-service.yaml"
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - service
+
+- name: 배포 상태 확인
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: "{{ app_name }}-deployment"
+    namespace: "{{ target_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 60
+  register: deployment_status
+  tags:
+    - verify
+
+- name: 배포 결과 출력
+  debug:
+    msg: |
+      배포가 완료되었습니다!
+      - 네임스페이스: {{ target_namespace }}
+      - 앱 이름: {{ app_name }}
+      - 이미지: {{ app_image }}
+      - 복제본 수: {{ app_replicas }}
+      - 접속 URL: http://localhost:30080
+      
+      확인 명령어:
+      kubectl get pods -n {{ target_namespace }}
+      kubectl get svc -n {{ target_namespace }}
+      kubectl logs -f deployment/{{ app_name }}-deployment -n {{ target_namespace }}
+  tags:
+    - verify
+
+- name: 임시 파일 정리
+  file:
+    path: "{{ item }}"
+    state: absent
+  loop:
+    - "/tmp/nextjs-deployment.yaml"
+    - "/tmp/nextjs-service.yaml"
+  tags:
+    - always
