@@ -1,0 +1,28 @@
+---
+galaxy_info:
+  author: "{{ ansible_user | default('ansible') }}"
+  description: AWS 인프라 리소스 생성 및 관리 (LocalStack 환경)
+  company: Local Development
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+    - name: Darwin
+      versions:
+        - all
+
+  galaxy_tags:
+    - aws
+    - route53
+    - loadbalancer
+    - infrastructure
+    - localstack
+
+dependencies:
+  # AWS collection 필요
+  []

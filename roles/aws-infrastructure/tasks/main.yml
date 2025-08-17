@@ -1,0 +1,148 @@
+---
+# AWS 인프라 리소스 생성 및 관리
+
+- name: AWS 인프라 생성 시작
+  debug:
+    msg: |
+      AWS 인프라를 생성합니다:
+      - 도메인: {{ domain_name }}
+      - 네임스페이스: {{ target_namespace }}
+      - LocalStack 엔드포인트: {{ localstack_endpoint }}
+
+- name: Route53 호스팅 영역 생성
+  amazon.aws.route53_zone:
+    zone: "{{ domain_name }}"
+    state: present
+    comment: "LocalStack 테스트용 호스팅 영역"
+    aws_access_key: "{{ aws_access_key_id }}"
+    aws_secret_key: "{{ aws_secret_access_key }}"
+    region: "{{ aws_region }}"
+    endpoint_url: "{{ localstack_endpoint }}"
+  register: hosted_zone
+  tags:
+    - route53
+
+- name: Route53 A 레코드 생성 (샘플 도메인)
+  amazon.aws.route53:
+    state: present
+    zone: "{{ domain_name }}"
+    record: "{{ app_name }}.{{ domain_name }}"
+    type: A
+    value: "127.0.0.1"  # 로컬 테스트용
+    ttl: 300
+    identifier: "{{ app_name }}-record"
+    aws_access_key: "{{ aws_access_key_id }}"
+    aws_secret_key: "{{ aws_secret_access_key }}"
+    region: "{{ aws_region }}"
+    endpoint_url: "{{ localstack_endpoint }}"
+  tags:
+    - route53
+
+- name: AWS 리소스 생성 알림
+  debug:
+    msg: |
+      LocalStack 환경에서 AWS 리소스를 시뮬레이션합니다.
+      실제 VPC/ELB 생성은 LocalStack Community 버전에서 제한적이므로
+      개념적인 리소스 정보를 저장합니다.
+
+- name: 고유 ID 생성
+  set_fact:
+    resource_id: "{{ 99999999 | random }}"
+
+- name: 시뮬레이션된 VPC 정보 생성
+  set_fact:
+    simulated_vpc:
+      id: "vpc-{{ resource_id }}"
+      cidr_block: "10.0.0.0/16"
+      name: "{{ app_name }}-vpc"
+  tags:
+    - vpc
+
+- name: 시뮬레이션된 서브넷 정보 생성
+  set_fact:
+    simulated_subnet:
+      id: "subnet-{{ resource_id }}"
+      cidr: "10.0.1.0/24"
+      vpc_id: "{{ simulated_vpc.id }}"
+      availability_zone: "{{ aws_region }}a"
+  tags:
+    - vpc
+
+- name: 시뮬레이션된 보안 그룹 정보 생성
+  set_fact:
+    simulated_security_group:
+      id: "sg-{{ resource_id }}"
+      name: "{{ app_name }}-sg"
+      vpc_id: "{{ simulated_vpc.id }}"
+      rules:
+        - protocol: tcp
+          from_port: 80
+          to_port: 80
+          cidr_blocks: ["0.0.0.0/0"]
+        - protocol: tcp
+          from_port: 443
+          to_port: 443
+          cidr_blocks: ["0.0.0.0/0"]
+  tags:
+    - security
+
+- name: 시뮬레이션된 로드밸런서 정보 생성
+  set_fact:
+    simulated_load_balancer:
+      arn: "arn:aws:elasticloadbalancing:{{ aws_region }}:123456789012:loadbalancer/app/{{ app_name }}-alb/{{ resource_id }}"
+      dns_name: "{{ app_name }}-alb-{{ resource_id }}.{{ aws_region }}.elb.amazonaws.com"
+      name: "{{ app_name }}-alb"
+      subnets: ["{{ simulated_subnet.id }}"]
+      security_groups: ["{{ simulated_security_group.id }}"]
+  tags:
+    - loadbalancer
+
+- name: 시뮬레이션된 타겟 그룹 정보 생성
+  set_fact:
+    simulated_target_group:
+      arn: "arn:aws:elasticloadbalancing:{{ aws_region }}:123456789012:targetgroup/{{ app_name }}-tg/{{ resource_id }}"
+      name: "{{ app_name }}-tg"
+      port: 80
+      protocol: "HTTP"
+      vpc_id: "{{ simulated_vpc.id }}"
+  tags:
+    - loadbalancer
+
+- name: AWS 인프라 정보 저장
+  set_fact:
+    aws_infrastructure:
+      hosted_zone_id: "{{ hosted_zone.zone_id }}"
+      domain_name: "{{ domain_name }}"
+      app_domain: "{{ app_name }}.{{ domain_name }}"
+      vpc_id: "{{ simulated_vpc.id }}"
+      subnet_id: "{{ simulated_subnet.id }}"
+      security_group_id: "{{ simulated_security_group.id }}"
+      load_balancer_arn: "{{ simulated_load_balancer.arn }}"
+      load_balancer_dns: "{{ simulated_load_balancer.dns_name }}"
+      target_group_arn: "{{ simulated_target_group.arn }}"
+  tags:
+    - always
+
+- name: AWS 인프라 생성 결과 출력
+  debug:
+    msg: |
+      🎉 AWS 인프라가 성공적으로 생성되었습니다!
+      
+      📍 Route53:
+      - 호스팅 영역: {{ domain_name }}
+      - 애플리케이션 도메인: {{ app_name }}.{{ domain_name }}
+      - 호스팅 영역 ID: {{ hosted_zone.zone_id }}
+      
+      🌐 Load Balancer (시뮬레이션):
+      - ALB ARN: {{ simulated_load_balancer.arn }}
+      - ALB DNS: {{ simulated_load_balancer.dns_name }}
+      - 타겟 그룹 ARN: {{ simulated_target_group.arn }}
+      
+      🔒 네트워크 (시뮬레이션):
+      - VPC ID: {{ simulated_vpc.id }}
+      - 서브넷 ID: {{ simulated_subnet.id }}
+      - 보안 그룹 ID: {{ simulated_security_group.id }}
+      
+      💡 참고: LocalStack Community 버전의 제한으로 일부 AWS 리소스는 시뮬레이션됩니다.
+  tags:
+    - verify

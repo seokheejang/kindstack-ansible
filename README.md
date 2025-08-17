@@ -1,32 +1,46 @@
 # KindStack Ansible
 
-로컬 환경에서 **Kind** 클러스터와 **LocalStack**을 사용한 Ansible 테스트 프로젝트입니다.
+로컬 환경에서 **Kind** 클러스터와 **LocalStack**을 사용한 **Full Stack** Ansible 배포 프로젝트입니다.
 
 ## 🎯 목적
 
-- Kind 클러스터에 Next.js SSR 앱 배포 자동화
+- **완전한 로컬 AWS + Kubernetes 환경** 구축 및 자동화
+- **AWS Route53 + LoadBalancer + Kubernetes Ingress** 통합 배포  
+- **포트 포워딩 없이 도메인으로 직접 접속** 가능한 환경
 - LocalStack을 통한 AWS 서비스 시뮬레이션
-- Ansible을 활용한 인프라 코드 관리
+- Ansible을 활용한 Infrastructure as Code 관리
 
 ## 📁 프로젝트 구조
 
 ```
 kindstack-ansible/
 ├── ansible.cfg                    # Ansible 설정
-├── requirements.yml               # Ansible 컬렉션 의존성
-├── docker-compose.yaml           # LocalStack 설정
+├── requirements.yml               # Ansible 컬렉션 의존성 (kubernetes.core, amazon.aws)
+├── docker-compose.yaml           # LocalStack 설정 (Route53, ELB, EC2 포함)
+├── kind-config.yaml              # Kind 클러스터 설정 (Ingress 지원)
 ├── inventory/
-│   └── hosts.yml                 # 인벤토리 설정
+│   └── hosts.yml                 # 인벤토리 및 변수 설정
 ├── roles/
-│   └── nextjs-deploy/           # Next.js 배포 역할
-│       ├── tasks/main.yml       # 배포 태스크
-│       └── meta/main.yml        # 메타데이터
+│   ├── nextjs-deploy/           # 기본 애플리케이션 배포
+│   │   ├── tasks/main.yml       # 배포 태스크
+│   │   ├── templates/           # Kubernetes 매니페스트 템플릿
+│   │   │   ├── deployment.yaml.j2
+│   │   │   └── service.yaml.j2
+│   │   └── meta/main.yml        # 메타데이터
+│   ├── aws-infrastructure/      # AWS 인프라 관리 (LocalStack)
+│   │   ├── tasks/main.yml       # Route53, ALB 시뮬레이션
+│   │   └── meta/main.yml
+│   └── k8s-enhanced/           # 향상된 K8s 리소스 (Ingress, LoadBalancer)
+│       ├── tasks/main.yml       # Ingress Controller, LoadBalancer 배포
+│       └── meta/main.yml
 ├── playbooks/
-│   └── deploy-nextjs.yml        # Next.js 배포 플레이북
+│   ├── deploy-nextjs.yml        # 기본 Next.js 배포 플레이북
+│   └── deploy-full-stack.yml    # 통합 Full Stack 배포 플레이북
 └── scripts/
-    ├── setup.sh                 # 환경 설정 스크립트
-    ├── deploy.sh                # 배포 스크립트
-    └── cleanup.sh               # 정리 스크립트
+    ├── setup.sh                 # 환경 설정 (Kind 설정 포함)
+    ├── deploy.sh                # 기본 배포 스크립트
+    ├── cleanup.sh               # 강력한 정리 스크립트 (옵션별 정리)
+    └── ansible-commands.sh      # Ansible 유틸리티 명령어
 ```
 
 ## 🚀 빠른 시작
@@ -34,38 +48,63 @@ kindstack-ansible/
 ### 1. 환경 설정
 
 ```bash
-# 환경 설정 및 의존성 설치
+# 완전 자동 환경 설정 (권장)
 ./scripts/setup.sh
 ```
 
 이 스크립트는 다음을 수행합니다:
 - 필수 도구 설치 확인 (ansible, kubectl, kind, docker)
-- Ansible 컬렉션 설치
-- Kind 클러스터 생성 (없는 경우)
-- LocalStack 시작
+- Ansible 컬렉션 설치 (kubernetes.core, amazon.aws)
+- **Ingress 지원 Kind 클러스터** 생성 (kind-config.yaml 사용)
+- LocalStack 시작 (Route53, ELB, EC2 서비스 포함)
 
-### 2. Next.js 앱 배포
+### 2. Full Stack 배포 🚀
 
 ```bash
-# 간단한 배포
-./scripts/deploy.sh
+# 완전한 스택 배포 (AWS + Kubernetes + Ingress)
+make deploy-full
 
-# 또는 직접 플레이북 실행
-ansible-playbook playbooks/deploy-nextjs.yml
+# 또는 직접 실행
+ansible-playbook playbooks/deploy-full-stack.yml
 ```
 
-### 3. 앱 접속
+이 명령어는 다음을 자동으로 배포합니다:
+- ✅ **AWS Route53** 호스팅 영역 및 도메인 (LocalStack)
+- ✅ **Application Load Balancer** 시뮬레이션
+- ✅ **Kubernetes 애플리케이션** (Deployment, ConfigMap, Service)
+- ✅ **NGINX Ingress Controller** 설치
+- ✅ **LoadBalancer Service** 생성
+- ✅ **Ingress 리소스** 생성 (도메인 연결)
+
+### 3. 앱 접속 🌐
+
+**포트 포워딩 없이 바로 접속 가능!**
 
 ```bash
-# 브라우저에서 접속
-open http://localhost:30080
+# 1. 직접 접속 (가장 간단!)
+curl http://localhost
+# 브라우저: http://localhost
+
+# 2. 커스텀 도메인 접속
+echo "127.0.0.1 nextjs-sample.example.local" | sudo tee -a /etc/hosts
+# 브라우저: http://nextjs-sample.example.local
+
+# 3. Host 헤더 테스트
+curl -H "Host: nextjs-sample.example.local" http://localhost
 ```
 
-### 4. 정리
+### 4. 정리 🧹
 
 ```bash
-# 테스트 환경 정리
-./scripts/cleanup.sh
+# 기본 정리 (K8s + LocalStack 재시작)
+make clean
+
+# 완전 정리 (Kind 클러스터까지 재생성)
+make clean-all
+
+# 선택적 정리
+make clean-k8s        # Kubernetes만
+make clean-localstack # LocalStack만
 ```
 
 ## 📋 필수 요구사항
@@ -167,23 +206,23 @@ make help
 # 환경 설정
 make setup
 
-# 배포
-make deploy
+# === 배포 명령어 ===
+make deploy           # 기본 애플리케이션 배포
+make deploy-full      # Full Stack 배포 (AWS + K8s + Ingress)
+make deploy-aws       # AWS 인프라만 배포
+make deploy-enhanced  # 향상된 K8s 리소스만 배포 (Ingress, LoadBalancer)
 
-# 문법 검사
-make check
+# === 정리 명령어 ===
+make clean            # 기본 정리 (K8s + LocalStack 재시작)
+make clean-all        # 완전 정리 (Kind 클러스터 포함)
+make clean-k8s        # Kubernetes 리소스만 정리
+make clean-localstack # LocalStack만 재시작
 
-# 드라이런
-make dry-run
-
-# 상태 확인
-make status
-
-# 로그 확인
-make logs
-
-# 정리
-make clean
+# === 유틸리티 ===
+make check            # 문법 검사
+make dry-run          # 드라이런
+make status           # 상태 확인
+make logs             # 로그 확인
 ```
 
 ### ⚙️ Ansible 전용 명령어
@@ -273,27 +312,80 @@ aws --endpoint-url=http://localhost:4566 s3 ls
 
 ### 일반적인 문제들
 
-1. **Kind 클러스터 접근 불가**
+1. **Ingress 접속이 안 될 때** 🌐
    ```bash
-   kind create cluster --name kind
+   # Kind 클러스터 포트 매핑 확인
+   docker ps --filter "name=kind-control-plane"
+   
+   # Ingress Controller 상태 확인
+   kubectl get pods -n ingress-nginx
+   kubectl get svc -n ingress-nginx
+   
+   # 클러스터 재생성 (포트 매핑 포함)
+   make clean-all
+   ```
+
+2. **"ImagePullBackOff" 오류**
+   ```bash
+   # 이미지를 변경해서 재배포
+   ansible-playbook playbooks/deploy-full-stack.yml --extra-vars "app_image=nginx:alpine"
+   ```
+
+3. **Webhook 연결 오류** (Ingress 생성 실패)
+   ```bash
+   # Ingress Controller가 완전히 준비될 때까지 대기
+   kubectl wait --for=condition=ready pod -n ingress-nginx -l app.kubernetes.io/component=controller --timeout=300s
+   
+   # 또는 정리 후 재배포
+   make clean && make deploy-full
+   ```
+
+4. **Kind 클러스터 접근 불가**
+   ```bash
+   # 클러스터 상태 확인
+   kind get clusters
    kubectl cluster-info --context kind-kind
+   
+   # 클러스터 재생성
+   make clean-all
    ```
 
-2. **LocalStack 연결 오류**
+5. **LocalStack 연결 오류**
    ```bash
-   docker-compose up -d
-   curl http://localhost:4566/health
+   # LocalStack 상태 확인
+   docker-compose ps
+   curl http://localhost:4566/_localstack/health
+   
+   # LocalStack 재시작
+   make clean-localstack
    ```
 
-3. **권한 문제**
+6. **권한 문제**
    ```bash
    chmod +x scripts/*.sh
    ```
 
-4. **Ansible 컬렉션 문제**
+7. **Ansible 컬렉션 문제**
    ```bash
    ansible-galaxy collection install -r requirements.yml --force
    ```
+
+### 🔍 디버깅 팁
+
+```bash
+# 상세한 로그로 실행
+ansible-playbook playbooks/deploy-full-stack.yml -vvv
+
+# 특정 단계부터 실행
+ansible-playbook playbooks/deploy-full-stack.yml --start-at-task="Ingress 리소스 생성"
+
+# 태그별 실행
+ansible-playbook playbooks/deploy-full-stack.yml --tags enhanced
+
+# 현재 상태 확인
+kubectl get all -A
+make status
+```
 
 ## 📝 개발 가이드
 
@@ -339,6 +431,85 @@ ansible-playbook playbooks/deploy-nextjs.yml --limit localhost
 ansible-vault create secrets.yml
 ```
 
+## 🆕 새로운 기능들 (최신 업데이트)
+
+### ✨ **Webhook 대기 로직** 개선
+- **Ingress 생성 실패 문제 해결**: NGINX Ingress Controller의 webhook이 완전히 준비될 때까지 자동 대기
+- **안정적인 배포**: 더 이상 수동으로 Ingress를 생성할 필요 없음
+
+### 🧹 **강력한 정리 시스템**
+- **선택적 정리**: 필요한 구성 요소만 골라서 정리 가능
+- **스마트 재시작**: LocalStack과 Kind 클러스터 자동 재생성
+- **상태 확인**: 정리 후 전체 환경 상태를 자동으로 확인
+
+### 🔧 **Kind 설정 파일**
+- **`kind-config.yaml`**: Ingress 지원을 위한 포트 매핑 자동 설정
+- **Host 포트 노출**: 80, 443 포트를 호스트에 직접 매핑
+
+### 🎭 **Jinja2 템플릿**
+- **타입 안전성**: Kubernetes 매니페스트의 정수/문자열 타입 문제 해결
+- **동적 생성**: 환경에 따른 유연한 매니페스트 생성
+
+## 🌐 도메인 접속 방법
+
+### 1. 직접 접속 (가장 간단!) ⭐
+```bash
+curl http://localhost
+# 또는 브라우저에서 http://localhost
+```
+**포트 포워딩 없이 바로 접속 가능합니다!**
+
+### 2. 커스텀 도메인 접속 🏷️
+`/etc/hosts` 파일에 다음 라인을 추가:
+```bash
+# 터미널에서 실행
+echo "127.0.0.1 nextjs-sample.example.local" | sudo tee -a /etc/hosts
+```
+
+그 후 브라우저에서 접속:
+```
+http://nextjs-sample.example.local
+```
+
+### 3. Host 헤더를 사용한 접속 (테스트용) 🧪
+```bash
+curl -H "Host: nextjs-sample.example.local" http://localhost
+curl -H "Host: localhost" http://localhost
+```
+
+## 🎯 주요 기능들
+
+### 🚀 Full Stack 배포
+**완전한 로컬 AWS + Kubernetes 환경**을 한 번에 구축:
+
+```bash
+make deploy-full
+# 또는
+ansible-playbook playbooks/deploy-full-stack.yml
+```
+
+**배포되는 구성 요소:**
+- ☁️ **AWS Route53** (LocalStack) - 도메인 관리
+- 🌐 **Application Load Balancer** (시뮬레이션)
+- 🎭 **NGINX Ingress Controller** - HTTP/HTTPS 트래픽 관리
+- ⚖️ **LoadBalancer Service** - AWS 연동
+- 📦 **Kubernetes 애플리케이션** - 완전한 배포
+
+### 🔧 개별 컴포넌트 배포
+```bash
+make deploy-aws      # AWS 인프라만 (Route53, ALB)
+make deploy-enhanced # K8s 향상 기능만 (Ingress, LoadBalancer)
+make deploy          # 기본 애플리케이션만
+```
+
+### 🧹 강력한 정리 시스템
+```bash
+make clean           # 기본 정리 (K8s + LocalStack 재시작)
+make clean-all       # 완전 정리 (Kind 클러스터 재생성)
+make clean-k8s       # Kubernetes 리소스만
+make clean-localstack # LocalStack만
+```
+
 ## 🚀 Git Repository 설정
 
 ```bash
@@ -360,11 +531,3 @@ git push -u origin main
 3. 변경사항을 커밋합니다 (`git commit -am '새 기능 추가'`)
 4. 브랜치에 푸시합니다 (`git push origin feature/새기능`)
 5. 풀 리퀘스트를 생성합니다
-
-## 📄 라이선스
-
-MIT License - 자세한 내용은 [LICENSE](LICENSE) 파일을 참조하세요.
-
-## 🙋‍♂️ 지원
-
-문제가 있거나 질문이 있으시면 이슈를 생성해 주세요!

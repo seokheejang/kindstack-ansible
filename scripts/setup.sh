@@ -219,9 +219,15 @@ ansible-galaxy collection install -r requirements.yml --force
 # 3. Kind 클러스터 확인/생성
 print_status "Kind 클러스터 상태를 확인합니다..."
 if ! kubectl cluster-info --context kind-kind &> /dev/null; then
-    print_warning "Kind 클러스터가 없습니다. 새로 생성합니다..."
-    kind create cluster --name kind
-    print_status "✅ Kind 클러스터가 생성되었습니다."
+    print_warning "Kind 클러스터가 없습니다. Ingress 지원 설정으로 새로 생성합니다..."
+    if [ -f "kind-config.yaml" ]; then
+        kind create cluster --name kind --config kind-config.yaml
+        print_status "✅ Ingress 지원 Kind 클러스터가 생성되었습니다."
+    else
+        print_warning "kind-config.yaml이 없습니다. 기본 클러스터를 생성합니다..."
+        kind create cluster --name kind
+        print_status "✅ 기본 Kind 클러스터가 생성되었습니다."
+    fi
 else
     print_status "✅ Kind 클러스터가 이미 실행 중입니다."
 fi

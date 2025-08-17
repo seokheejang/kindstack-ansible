@@ -1,0 +1,28 @@
+---
+galaxy_info:
+  author: "{{ ansible_user | default('ansible') }}"
+  description: 향상된 Kubernetes 리소스 배포 (LoadBalancer, Ingress)
+  company: Local Development
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+    - name: Darwin
+      versions:
+        - all
+
+  galaxy_tags:
+    - kubernetes
+    - ingress
+    - loadbalancer
+    - nginx
+    - service
+
+dependencies:
+  # 기본 nextjs-deploy 역할에 의존
+  []

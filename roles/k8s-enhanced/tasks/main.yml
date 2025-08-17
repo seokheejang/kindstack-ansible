@@ -1,0 +1,259 @@
+---
+# 향상된 Kubernetes 리소스 배포 (Ingress, LoadBalancer Service 포함)
+
+- name: 향상된 K8s 배포 시작
+  debug:
+    msg: |
+      향상된 Kubernetes 리소스를 배포합니다:
+      - LoadBalancer Service
+      - Ingress Controller
+      - 도메인 연결: {{ aws_infrastructure.app_domain }}
+
+- name: Ingress Controller 설치 확인
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: ingress-nginx-controller
+    namespace: ingress-nginx
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: ingress_controller_check
+  failed_when: false
+  tags:
+    - ingress
+
+- name: Ingress Controller 설치 (없는 경우)
+  kubernetes.core.k8s:
+    state: present
+    definition:
+      apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: ingress-nginx
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  when: ingress_controller_check.resources | length == 0
+  tags:
+    - ingress
+
+- name: NGINX Ingress Controller 매니페스트 적용
+  kubernetes.core.k8s:
+    state: present
+    src: "https://raw.githubusercontent.com/kubernetes/ingress-nginx/controller-v1.8.1/deploy/static/provider/kind/deploy.yaml"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  when: ingress_controller_check.resources | length == 0
+  tags:
+    - ingress
+
+- name: Ingress Controller 준비 대기
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: ingress-nginx-controller
+    namespace: ingress-nginx
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+    wait: true
+    wait_condition:
+      type: Available
+      status: "True"
+    wait_timeout: 300
+  when: ingress_controller_check.resources | length == 0
+  tags:
+    - enhanced
+    - ingress
+
+- name: Ingress Controller Webhook 준비 대기
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    namespace: ingress-nginx
+    name: ingress-nginx-controller-admission
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: webhook_service
+  until: webhook_service.resources | length > 0
+  retries: 30
+  delay: 10
+  tags:
+    - enhanced
+    - ingress
+
+- name: Webhook 준비 완료 대기 (추가 안전 대기)
+  pause:
+    seconds: 30
+  tags:
+    - enhanced
+    - ingress
+
+- name: LoadBalancer Service 생성
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: "{{ app_name }}-loadbalancer"
+        namespace: "{{ target_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+        annotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+          service.beta.kubernetes.io/aws-load-balancer-cross-zone-load-balancing-enabled: "true"
+          service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      spec:
+        type: LoadBalancer
+        ports:
+        - port: 80
+          targetPort: 80
+          protocol: TCP
+          name: http
+        - port: 443
+          targetPort: 80
+          protocol: TCP
+          name: https
+        selector:
+          app: "{{ app_name }}"
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: loadbalancer_service
+  tags:
+    - service
+
+- name: ClusterIP Service 생성 (Ingress용)
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: "{{ app_name }}-clusterip"
+        namespace: "{{ target_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+      spec:
+        type: ClusterIP
+        ports:
+        - port: 80
+          targetPort: 80
+          protocol: TCP
+        selector:
+          app: "{{ app_name }}"
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - service
+
+- name: Ingress 리소스 생성
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: "{{ app_name }}-ingress"
+        namespace: "{{ target_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+        annotations:
+          nginx.ingress.kubernetes.io/rewrite-target: /
+          nginx.ingress.kubernetes.io/ssl-redirect: "false"
+          # AWS ALB 연동 어노테이션 (선택사항)
+          alb.ingress.kubernetes.io/scheme: internet-facing
+          alb.ingress.kubernetes.io/target-type: ip
+          alb.ingress.kubernetes.io/load-balancer-name: "{{ app_name }}-alb"
+      spec:
+        ingressClassName: nginx
+        rules:
+        - host: "{{ aws_infrastructure.app_domain | default(app_name + '.example.local') }}"
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: "{{ app_name }}-clusterip"
+                  port:
+                    number: 80
+        - host: localhost
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: "{{ app_name }}-clusterip"
+                  port:
+                    number: 80
+    state: present
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  tags:
+    - ingress
+
+- name: 서비스 엔드포인트 정보 수집
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: "{{ app_name }}-loadbalancer"
+    namespace: "{{ target_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: lb_service_info
+  tags:
+    - verify
+
+- name: Ingress 정보 수집
+  kubernetes.core.k8s_info:
+    api_version: networking.k8s.io/v1
+    kind: Ingress
+    name: "{{ app_name }}-ingress"
+    namespace: "{{ target_namespace }}"
+    kubeconfig: ~/.kube/config
+    context: "{{ kubernetes_context }}"
+  register: ingress_info
+  tags:
+    - verify
+
+- name: Kind 클러스터 포트 매핑 확인
+  shell: |
+    docker ps --filter "name=kind-control-plane" --format "table {{ "{{" }}.Names{{ "}}" }}\t{{ "{{" }}.Ports{{ "}}" }}"
+  register: kind_ports
+  tags:
+    - verify
+
+- name: 향상된 K8s 배포 결과 출력
+  debug:
+    msg: |
+      🎉 향상된 Kubernetes 리소스가 생성되었습니다!
+      
+      🌐 서비스 접속 방법:
+      
+      1️⃣ NodePort (기존):
+         http://localhost:30080
+      
+      2️⃣ LoadBalancer Service:
+         타입: {{ lb_service_info.resources[0].spec.type }}
+         포트: {{ lb_service_info.resources[0].spec.ports | map(attribute='port') | list }}
+      
+      3️⃣ Ingress:
+         도메인: {{ aws_infrastructure.app_domain | default(app_name + '.local') }}
+         백엔드: {{ app_name }}-clusterip:80
+      
+      4️⃣ 로컬 테스트:
+         # /etc/hosts에 추가:
+         127.0.0.1 {{ app_name }}.local
+         127.0.0.1 {{ aws_infrastructure.app_domain | default(app_name + '.local') }}
+         
+         # 그 후 접속:
+         curl -H "Host: {{ app_name }}.local" http://localhost:80
+      
+      🐳 Kind 클러스터 포트:
+      {{ kind_ports.stdout }}
+      
+      📋 확인 명령어:
+      kubectl get svc -n {{ target_namespace }}
+      kubectl get ingress -n {{ target_namespace }}
+      kubectl describe ingress {{ app_name }}-ingress -n {{ target_namespace }}
+  tags:
+    - verify

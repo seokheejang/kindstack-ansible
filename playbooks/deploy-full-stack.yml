@@ -1,0 +1,192 @@
+---
+# 전체 스택 배포: AWS + Kubernetes 통합 환경
+
+- name: "Full Stack 배포: AWS 인프라 + Kubernetes + 애플리케이션"
+  hosts: localhost
+  gather_facts: false
+  connection: local
+  
+  vars_prompt:
+    - name: app_name
+      prompt: "배포할 앱 이름을 입력하세요"
+      default: "nextjs-sample"
+      private: false
+    
+    - name: app_image
+      prompt: "사용할 이미지를 입력하세요"
+      default: "nginx:alpine"
+      private: false
+    
+    - name: app_replicas
+      prompt: "복제본 수를 입력하세요"
+      default: "1"
+      private: false
+      
+    - name: domain_name
+      prompt: "사용할 도메인 이름을 입력하세요"
+      default: "example.local"
+      private: false
+
+  pre_tasks:
+    - name: 필수 조건 확인
+      block:
+        - name: kubectl 명령어 존재 확인
+          command: which kubectl
+          register: kubectl_check
+          failed_when: kubectl_check.rc != 0
+          changed_when: false
+        
+        - name: Kind 클러스터 상태 확인
+          command: kubectl cluster-info --context kind-kind
+          register: kind_check
+          failed_when: kind_check.rc != 0
+          changed_when: false
+        
+        - name: LocalStack 상태 확인
+          uri:
+            url: "{{ localstack_endpoint }}/_localstack/health"
+            method: GET
+            timeout: 10
+            status_code: [200, 404]
+          register: localstack_check
+          failed_when: localstack_check.status not in [200, 404]
+          ignore_errors: true
+        
+        - name: LocalStack 대체 상태 확인 (포트 체크)
+          wait_for:
+            host: localhost
+            port: 4566
+            timeout: 5
+          register: localstack_port_check
+          when: localstack_check is failed
+          failed_when: false
+      
+      rescue:
+        - name: 상세한 에러 메시지 출력
+          fail:
+            msg: |
+              🚨 필수 조건을 만족하지 않습니다:
+              
+              {% if kubectl_check is failed %}
+              ❌ kubectl: 설치되지 않음
+                 해결: brew install kubectl (macOS) 또는 ./scripts/setup.sh 실행
+              {% else %}
+              ✅ kubectl: 정상
+              {% endif %}
+              
+              {% if kind_check is failed %}
+              ❌ Kind 클러스터: 실행되지 않음
+                 해결: kind create cluster
+              {% else %}
+              ✅ Kind 클러스터: 정상
+              {% endif %}
+              
+              {% if localstack_check is failed and localstack_port_check is failed %}
+              ❌ LocalStack: 실행되지 않음
+                 해결: docker-compose up -d
+              {% elif localstack_check is failed %}
+              ⚠️  LocalStack: 실행 중이지만 health 체크 실패 (포트는 열림)
+                 배포는 계속 진행 가능합니다.
+              {% else %}
+              ✅ LocalStack: 정상
+              {% endif %}
+              
+              💡 빠른 해결: ./scripts/setup.sh 실행
+      tags:
+        - always
+
+  tasks:
+    - name: 변수 설정 확인
+      debug:
+        msg: |
+          🚀 Full Stack 배포 설정:
+          - 앱 이름: {{ app_name }}
+          - 이미지: {{ app_image }}
+          - 복제본: {{ app_replicas }}
+          - 네임스페이스: {{ target_namespace }}
+          - 도메인: {{ domain_name }}
+          - 애플리케이션 FQDN: {{ app_name }}.{{ domain_name }}
+          - Kubernetes 컨텍스트: {{ kubernetes_context }}
+          - LocalStack 엔드포인트: {{ localstack_endpoint }}
+      tags:
+        - debug
+
+    - name: "1단계: AWS 인프라 생성"
+      include_role:
+        name: aws-infrastructure
+      tags:
+        - aws
+        - infrastructure
+
+    - name: "2단계: 기본 애플리케이션 배포"
+      include_role:
+        name: nextjs-deploy
+      tags:
+        - app
+        - kubernetes
+
+    - name: "3단계: 향상된 Kubernetes 리소스 배포"
+      include_role:
+        name: k8s-enhanced
+      tags:
+        - enhanced
+        - ingress
+        - loadbalancer
+
+  post_tasks:
+    - name: 🎉 Full Stack 배포 완료 메시지
+      debug:
+        msg: |
+          🎉 Full Stack 배포가 완료되었습니다!
+          
+          🏗️  생성된 AWS 리소스:
+          - Route53 호스팅 영역: {{ domain_name }}
+          - 애플리케이션 도메인: {{ aws_infrastructure.app_domain | default(app_name + '.' + domain_name) }}
+          - Application Load Balancer: {{ aws_infrastructure.load_balancer_dns | default('시뮬레이션됨') }}
+          - VPC: {{ aws_infrastructure.vpc_id | default('시뮬레이션됨') }}
+          
+          🎯 생성된 Kubernetes 리소스:
+          - Namespace: {{ target_namespace }}
+          - Deployment: {{ app_name }}-deployment
+          - Services: {{ app_name }}-service (NodePort), {{ app_name }}-loadbalancer (LoadBalancer), {{ app_name }}-clusterip (ClusterIP)
+          - Ingress: {{ app_name }}-ingress
+          
+          🌐 접속 방법:
+          
+          1️⃣ NodePort (기본):
+             http://localhost:30080
+          
+          2️⃣ 포트 포워딩:
+             kubectl port-forward -n {{ target_namespace }} service/{{ app_name }}-clusterip 8080:80
+             http://localhost:8080
+          
+          3️⃣ Ingress (로컬 테스트):
+             # /etc/hosts에 추가:
+             127.0.0.1 {{ app_name }}.local
+             127.0.0.1 {{ aws_infrastructure.app_domain | default(app_name + '.' + domain_name) }}
+             
+             # NGINX Ingress 포트 확인:
+             kubectl get svc -n ingress-nginx ingress-nginx-controller
+             
+             # 접속 테스트:
+             curl -H "Host: {{ app_name }}.local" http://localhost:80
+          
+          📊 확인 명령어:
+          
+          # AWS 리소스 확인 (LocalStack)
+          aws --endpoint-url={{ localstack_endpoint }} route53 list-hosted-zones
+          aws --endpoint-url={{ localstack_endpoint }} elbv2 describe-load-balancers
+          
+          # Kubernetes 리소스 확인
+          kubectl get all -n {{ target_namespace }}
+          kubectl get ingress -n {{ target_namespace }}
+          kubectl describe ingress {{ app_name }}-ingress -n {{ target_namespace }}
+          
+          # 로그 확인
+          kubectl logs -f deployment/{{ app_name }}-deployment -n {{ target_namespace }}
+          
+          🧹 정리 명령어:
+          kubectl delete namespace {{ target_namespace }}
+          # LocalStack 리소스는 컨테이너 재시작시 자동 삭제됨
+      tags:
+        - always

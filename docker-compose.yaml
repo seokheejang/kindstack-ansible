@@ -5,7 +5,7 @@ services:
     ports:
       - "4566:4566"
     environment:
-      - SERVICES=s3,route53,iam,sts  # 기본 AWS 서비스들 추가
+      - SERVICES=s3,route53,iam,sts,elb,elbv2,ec2  # AWS 로드밸런서 서비스 추가
       - AWS_DEFAULT_REGION=us-east-1
       - AWS_ACCESS_KEY_ID=test
       - AWS_SECRET_ACCESS_KEY=test

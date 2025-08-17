@@ -29,6 +29,11 @@ deploy: ## Next.js 앱을 배포합니다
 	@echo "🚀 Next.js 앱을 배포합니다..."
 	@ansible-playbook $(PLAYBOOK)
 
+# Full Stack 배포
+deploy-full: ## AWS + Kubernetes 전체 스택을 배포합니다
+	@echo "🏗️  Full Stack을 배포합니다..."
+	@ansible-playbook playbooks/deploy-full-stack.yml
+
 # 빠른 배포 (스크립트 사용)
 deploy-quick: ## 배포 스크립트를 사용한 빠른 배포
 	@./scripts/deploy.sh
@@ -74,10 +79,29 @@ deploy-service: ## 서비스만 생성
 deploy-verify: ## 배포 상태만 확인
 	@ansible-playbook $(PLAYBOOK) --tags verify
 
+# Full Stack 태그별 배포
+deploy-aws: ## AWS 인프라만 배포
+	@ansible-playbook playbooks/deploy-full-stack.yml --tags aws
+
+deploy-enhanced: ## 향상된 K8s 리소스만 배포 (Ingress, LoadBalancer)
+	@ansible-playbook playbooks/deploy-full-stack.yml --tags enhanced
+
 # 클린업
-clean: ## 배포된 리소스와 임시 파일을 정리합니다
+clean: ## 배포된 리소스와 임시 파일을 정리합니다 (K8s + LocalStack)
 	@echo "🧹 리소스를 정리합니다..."
 	@./scripts/cleanup.sh
+
+clean-all: ## 모든 것을 완전히 정리합니다 (Kind 클러스터 포함)
+	@echo "🧹 모든 것을 완전히 정리합니다..."
+	@./scripts/cleanup.sh --all
+
+clean-k8s: ## Kubernetes 리소스만 정리합니다
+	@echo "🧹 Kubernetes 리소스를 정리합니다..."
+	@./scripts/cleanup.sh --kubernetes
+
+clean-localstack: ## LocalStack만 재시작합니다
+	@echo "🧹 LocalStack을 재시작합니다..."
+	@./scripts/cleanup.sh --localstack
 
 clean-temp: ## Ansible 임시 파일만 정리
 	@echo "🗑️  임시 파일을 정리합니다..."
