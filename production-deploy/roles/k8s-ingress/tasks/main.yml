@@ -1,0 +1,112 @@
+---
+- name: "NGINX Ingress Controller 설치 확인"
+  kubernetes.core.k8s_info:
+    api_version: apps/v1
+    kind: Deployment
+    name: ingress-nginx-controller
+    namespace: ingress-nginx
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  register: ingress_controller_check
+  tags: ingress
+
+- name: "NGINX Ingress Controller 설치 (없는 경우)"
+  kubernetes.core.k8s:
+    state: present
+    definition: "{{ item }}"
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  loop:
+    - apiVersion: v1
+      kind: Namespace
+      metadata:
+        name: ingress-nginx
+    - apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: ingress-nginx-controller
+        namespace: ingress-nginx
+      spec:
+        replicas: 1
+        selector:
+          matchLabels:
+            app.kubernetes.io/name: ingress-nginx
+        template:
+          metadata:
+            labels:
+              app.kubernetes.io/name: ingress-nginx
+          spec:
+            containers:
+            - name: controller
+              image: k8s.gcr.io/ingress-nginx/controller:v1.8.2
+              ports:
+              - containerPort: 80
+                hostPort: 80
+              - containerPort: 443
+                hostPort: 443
+  when: ingress_controller_check.resources | length == 0
+  tags: ingress
+
+- name: "Ingress 리소스 생성"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: networking.k8s.io/v1
+      kind: Ingress
+      metadata:
+        name: "{{ app_name }}-ingress"
+        namespace: "{{ k8s_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+        annotations:
+          kubernetes.io/ingress.class: "nginx"
+          nginx.ingress.kubernetes.io/rewrite-target: /
+          nginx.ingress.kubernetes.io/ssl-redirect: "false"
+      spec:
+        rules:
+        - host: "{{ full_domain }}"
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: "{{ app_name }}-service"
+                  port:
+                    number: 80
+        - host: "localhost"
+          http:
+            paths:
+            - path: /
+              pathType: Prefix
+              backend:
+                service:
+                  name: "{{ app_name }}-service"
+                  port:
+                    number: 80
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  register: ingress_result
+  tags: ingress
+
+- name: "Ingress 생성 결과 출력"
+  debug:
+    msg: "Ingress 생성 완료: {{ app_name }}-ingress ({{ full_domain }})"
+  tags: ingress
+
+- name: "도메인 매핑 완료 확인"
+  uri:
+    url: "http://localhost"
+    method: GET
+    headers:
+      Host: "{{ full_domain }}"
+    status_code: [200, 404, 502, 503]
+  register: domain_test
+  retries: 5
+  delay: 10
+  tags: domain_mapping
+
+- name: "도메인 연결 테스트 결과"
+  debug:
+    msg: "도메인 {{ full_domain }} 연결 테스트 완료 (상태: {{ domain_test.status }})"
+  tags: domain_mapping

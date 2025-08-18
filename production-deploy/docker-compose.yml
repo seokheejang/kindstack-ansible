@@ -1,0 +1,24 @@
+version: '3.8'
+
+services:
+  ansible-runner:
+    build: .
+    image: ansible-runner:latest
+    container_name: ansible-runner
+    environment:
+      - DEPLOYMENT_ID=${DEPLOYMENT_ID:-1}
+      - DOCKER_IMAGE=${DOCKER_IMAGE:-nginx:alpine}
+      - DOMAIN=${DOMAIN:-example.com}
+      - APP_NAME=${APP_NAME:-sample-app}
+      - BRIDGE_SERVER_URL=${BRIDGE_SERVER_URL:-http://host.docker.internal:8080}
+      - ENV_CONFIG=${ENV_CONFIG:-}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-test}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-test}
+      - KUBECONFIG=/root/.kube/config
+    volumes:
+      - .:/ansible
+      - ~/.kube:/root/.kube:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+    network_mode: "host"
+    working_dir: /ansible
+    command: ["ansible-playbook", "playbooks/deploy-production.yml", "-v"]

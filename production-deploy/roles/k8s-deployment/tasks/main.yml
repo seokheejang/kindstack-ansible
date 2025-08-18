@@ -1,0 +1,79 @@
+---
+- name: "Kubernetes 네임스페이스 생성"
+  kubernetes.core.k8s:
+    name: "{{ k8s_namespace }}"
+    api_version: v1
+    kind: Namespace
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  tags: k8s_service
+
+- name: "ConfigMap 생성 (환경설정)"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: ConfigMap
+      metadata:
+        name: "{{ app_name }}-config"
+        namespace: "{{ k8s_namespace }}"
+      data:
+        ENV_CONFIG: "{{ env_config }}"
+        DOMAIN: "{{ full_domain }}"
+        APP_NAME: "{{ app_name }}"
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  tags: k8s_service
+
+- name: "Deployment 생성"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: apps/v1
+      kind: Deployment
+      metadata:
+        name: "{{ app_name }}-deployment"
+        namespace: "{{ k8s_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+      spec:
+        replicas: "{{ app_replicas }}"
+        selector:
+          matchLabels:
+            app: "{{ app_name }}"
+        template:
+          metadata:
+            labels:
+              app: "{{ app_name }}"
+          spec:
+            containers:
+            - name: "{{ app_name }}"
+              image: "{{ app_image }}"
+              ports:
+              - containerPort: "{{ app_port }}"
+              envFrom:
+              - configMapRef:
+                  name: "{{ app_name }}-config"
+              resources:
+                requests:
+                  memory: "128Mi"
+                  cpu: "100m"
+                limits:
+                  memory: "256Mi"
+                  cpu: "200m"
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+    wait: true
+    wait_condition:
+      type: Progressing
+      status: "True"
+      reason: NewReplicaSetAvailable
+    wait_timeout: 300
+  register: deployment_result
+  tags: k8s_service
+
+- name: "Deployment 상태 확인"
+  debug:
+    msg: "Deployment 생성 완료: {{ app_name }}-deployment"
+  tags: k8s_service

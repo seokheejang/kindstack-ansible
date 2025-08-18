@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: KindStack Team
+  description: AWS Route53 DNS 관리 Role
+  company: 
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - aws
+    - route53
+    - dns
+
+dependencies: []

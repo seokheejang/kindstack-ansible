@@ -1,0 +1,123 @@
+---
+- name: "Production 환경 Full Stack 배포"
+  hosts: localhost
+  gather_facts: true
+  vars:
+    deployment_start_time: "{{ ansible_date_time.iso8601 }}"
+    
+  tasks:
+    - name: "배포 시작 로그"
+      debug:
+        msg: |
+          ==========================================
+          Production 배포 시작
+          ==========================================
+          애플리케이션: {{ app_name }}
+          도커 이미지: {{ app_image }}
+          도메인: {{ full_domain }}
+          배포 ID: {{ deployment_id }}
+          시작 시간: {{ deployment_start_time }}
+          ==========================================
+
+    # 1단계: Route53 DNS 설정
+    - name: "1단계: Route53 DNS 설정"
+      include_role:
+        name: aws-route53
+      tags: 
+        - route53
+        - dns
+
+    # 2단계: AWS Load Balancer 설정
+    - name: "2단계: AWS Application Load Balancer 설정"
+      include_role:
+        name: aws-loadbalancer
+      tags: 
+        - load_balancer
+        - alb
+
+    # 3단계: Kubernetes Deployment 생성
+    - name: "3단계: Kubernetes 애플리케이션 배포"
+      include_role:
+        name: k8s-deployment
+      tags: 
+        - k8s_service
+        - deployment
+
+    # 4단계: Kubernetes Service 생성  
+    - name: "4단계: Kubernetes Service 생성"
+      include_role:
+        name: k8s-service
+      tags: 
+        - k8s_service
+        - service
+
+    # 5단계: Kubernetes Ingress 설정
+    - name: "5단계: Kubernetes Ingress 설정"
+      include_role:
+        name: k8s-ingress
+      tags: 
+        - ingress
+        - domain_mapping
+
+    # 최종 검증
+    - name: "배포 완료 검증"
+      block:
+        - name: "애플리케이션 상태 확인"
+          kubernetes.core.k8s_info:
+            api_version: apps/v1
+            kind: Deployment
+            name: "{{ app_name }}-deployment"
+            namespace: "{{ k8s_namespace }}"
+            kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+            context: "{{ k8s_context }}"
+          register: final_deployment_status
+
+        - name: "서비스 상태 확인"
+          kubernetes.core.k8s_info:
+            api_version: v1
+            kind: Service
+            name: "{{ app_name }}-service"
+            namespace: "{{ k8s_namespace }}"
+            kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+            context: "{{ k8s_context }}"
+          register: final_service_status
+
+        - name: "Ingress 상태 확인"
+          kubernetes.core.k8s_info:
+            api_version: networking.k8s.io/v1
+            kind: Ingress
+            name: "{{ app_name }}-ingress"
+            namespace: "{{ k8s_namespace }}"
+            kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+            context: "{{ k8s_context }}"
+          register: final_ingress_status
+
+        - name: "최종 배포 상태 출력"
+          debug:
+            msg: |
+              ==========================================
+              배포 완료 상태
+              ==========================================
+              애플리케이션: {{ app_name }}
+              도메인: {{ full_domain }}
+              배포 상태: {{ final_deployment_status.resources[0].status.readyReplicas | default(0) }}/{{ app_replicas }} Pod Ready
+              서비스: {{ final_service_status.resources | length }} 개 생성됨
+              Ingress: {{ final_ingress_status.resources | length }} 개 생성됨
+              
+              접속 방법:
+              1. 직접 접속: http://localhost
+              2. 도메인 접속: http://{{ full_domain }}
+              3. cURL 테스트: curl -H "Host: {{ full_domain }}" http://localhost
+              
+              완료 시간: {{ ansible_date_time.iso8601 }}
+              ==========================================
+
+      rescue:
+        - name: "배포 검증 실패"
+          debug:
+            msg: "배포 검증 중 오류가 발생했습니다. 개별 리소스를 확인해주세요."
+
+  post_tasks:
+    - name: "배포 완료 알림"
+      debug:
+        msg: "{{ app_name }} 애플리케이션이 성공적으로 배포되었습니다!"

@@ -1,0 +1,20 @@
+---
+galaxy_info:
+  author: KindStack Team
+  description: Kubernetes Deployment 관리 Role
+  company: 
+  license: MIT
+  min_ansible_version: 2.9
+  platforms:
+    - name: EL
+      versions:
+        - all
+    - name: Ubuntu
+      versions:
+        - all
+  galaxy_tags:
+    - kubernetes
+    - k8s
+    - deployment
+
+dependencies: []

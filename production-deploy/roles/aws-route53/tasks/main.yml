@@ -1,0 +1,35 @@
+---
+- name: "Route53 호스팅 영역 확인 및 생성"
+  amazon.aws.route53_zone:
+    zone: "{{ domain_name }}"
+    state: present
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+  register: route53_zone
+  tags: route53
+
+- name: "Route53 호스팅 영역 정보 출력"
+  debug:
+    var: route53_zone
+  tags: route53
+
+- name: "Route53 A 레코드 생성 (ALB 연결 준비)"
+  amazon.aws.route53:
+    state: present
+    zone: "{{ domain_name }}"
+    record: "{{ full_domain }}"
+    type: A
+    ttl: 300
+    value: "127.0.0.1"  # 임시 값, 나중에 ALB IP로 업데이트
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    wait: true
+  register: route53_record
+  tags: route53
+
+- name: "Route53 레코드 생성 결과 출력"
+  debug:
+    msg: "Route53 A 레코드 생성 완료: {{ full_domain }} -> 127.0.0.1"
+  tags: route53

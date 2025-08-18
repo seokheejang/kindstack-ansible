@@ -1,0 +1,78 @@
+---
+- name: "VPC 정보 가져오기"
+  amazon.aws.ec2_vpc_info:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    filters:
+      "tag:Name": "default"
+  register: vpc_info
+  tags: load_balancer
+
+- name: "기본 VPC 확인"
+  set_fact:
+    vpc_id: "{{ vpc_info.vpcs[0].vpc_id if vpc_info.vpcs else 'vpc-default' }}"
+  tags: load_balancer
+
+- name: "서브넷 정보 가져오기"
+  amazon.aws.ec2_subnet_info:
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    filters:
+      vpc-id: "{{ vpc_id }}"
+  register: subnet_info
+  tags: load_balancer
+
+- name: "보안 그룹 생성"
+  amazon.aws.ec2_security_group:
+    name: "{{ app_name }}-alb-sg"
+    description: "Security group for {{ app_name }} ALB"
+    vpc_id: "{{ vpc_id }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    rules:
+      - proto: tcp
+        ports:
+          - 80
+          - 443
+        cidr_ip: 0.0.0.0/0
+        rule_desc: "HTTP and HTTPS traffic"
+    tags:
+      Name: "{{ app_name }}-alb-sg"
+      Environment: production
+  register: security_group
+  tags: load_balancer
+
+- name: "Application Load Balancer 생성"
+  amazon.aws.elb_application_lb:
+    name: "{{ app_name }}-alb"
+    security_groups:
+      - "{{ security_group.group_id }}"
+    subnets: "{{ subnet_info.subnets | map(attribute='subnet_id') | list }}"
+    aws_access_key: "{{ aws_access_key }}"
+    aws_secret_key: "{{ aws_secret_key }}"
+    region: "{{ aws_region }}"
+    listeners:
+      - Protocol: HTTP
+        Port: 80
+        DefaultActions:
+          - Type: forward
+            TargetGroupArn: "{{ target_group.target_group_arn | default('') }}"
+    tags:
+      Name: "{{ app_name }}-alb"
+      Environment: production
+    state: present
+  register: alb_result
+  tags: load_balancer
+
+- name: "ALB 생성 결과 출력"
+  debug:
+    msg: "ALB 생성 완료: {{ alb_result.dns_name if alb_result.dns_name is defined else 'ALB 정보 없음' }}"
+  tags: load_balancer
+
+- name: "ALB DNS 이름을 변수로 저장"
+  set_fact:
+    alb_dns_name: "{{ alb_result.dns_name | default('localhost') }}"
+  tags: load_balancer

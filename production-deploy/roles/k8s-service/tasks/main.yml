@@ -1,0 +1,78 @@
+---
+- name: "ClusterIP Service 생성"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: "{{ app_name }}-service"
+        namespace: "{{ k8s_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+      spec:
+        type: ClusterIP
+        ports:
+        - port: 80
+          targetPort: "{{ app_port }}"
+          protocol: TCP
+        selector:
+          app: "{{ app_name }}"
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  register: service_result
+  tags: k8s_service
+
+- name: "LoadBalancer Service 생성 (AWS 연동용)"
+  kubernetes.core.k8s:
+    definition:
+      apiVersion: v1
+      kind: Service
+      metadata:
+        name: "{{ app_name }}-lb-service"
+        namespace: "{{ k8s_namespace }}"
+        labels:
+          app: "{{ app_name }}"
+        annotations:
+          service.beta.kubernetes.io/aws-load-balancer-type: "nlb"
+          service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+      spec:
+        type: LoadBalancer
+        ports:
+        - port: 80
+          targetPort: "{{ app_port }}"
+          protocol: TCP
+        selector:
+          app: "{{ app_name }}"
+    state: present
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+  register: lb_service_result
+  tags: k8s_service
+
+- name: "Service 생성 결과 출력"
+  debug:
+    msg: "Service 생성 완료: {{ app_name }}-service, {{ app_name }}-lb-service"
+  tags: k8s_service
+
+- name: "LoadBalancer 외부 IP 대기"
+  kubernetes.core.k8s_info:
+    api_version: v1
+    kind: Service
+    name: "{{ app_name }}-lb-service"
+    namespace: "{{ k8s_namespace }}"
+    kubeconfig: "{{ ansible_env.KUBECONFIG | default(omit) }}"
+    context: "{{ k8s_context }}"
+    wait: true
+    wait_condition:
+      type: LoadBalancer
+      status: "True"
+    wait_timeout: 300
+  register: lb_service_info
+  tags: k8s_service
+
+- name: "LoadBalancer 외부 IP 정보 저장"
+  set_fact:
+    lb_external_ip: "{{ lb_service_info.resources[0].status.loadBalancer.ingress[0].ip | default('localhost') }}"
+  when: lb_service_info.resources[0].status.loadBalancer.ingress is defined
+  tags: k8s_service
